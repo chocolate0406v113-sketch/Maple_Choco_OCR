@@ -71,6 +71,8 @@ body{min-height:100vh;padding:24px 20px 56px;}
 .hud-bar{min-width:150px;flex:1;}
 .hud-bar .label{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--text-muted);margin-bottom:5px;}
 .hud-bar .label b{font-weight:600;color:var(--text-primary);}
+/* 普通模式：EXP 上方多一行增加量，HP／MP 改為底部對齊，進度條與 EXP 同高（迷你 HUD 不受影響） */
+.hud:not(.eg-hide-ultra) .hud-bars{align-items:flex-end;}
 .hud-bar .track{height:4px;border-radius:2px;background:#1a1a1a;overflow:hidden;}
 .hud-bar .fill{height:100%;width:0;transition:width .4s;}
 .hud-bar.hp .fill{background:var(--accent-hp);}
@@ -228,6 +230,8 @@ body.pip-mode .mini-drag-dots{display:none;}
 body.pip-mode #miniHud .chart-wrap{min-height:110px;}
 
 .buff-banner{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99999;padding:14px 26px;border-radius:12px;background:#d9363e;color:#fff;font-size:20px;font-weight:700;letter-spacing:.5px;box-shadow:0 8px 30px rgba(0,0,0,.45);cursor:pointer;animation:buffPulse .6s ease-in-out infinite alternate;}
+/* 普通模式：提醒移到畫面底部，且不攔截點擊，避免擋住上方／下方按鈕（8 秒後自動消失）；迷你模式維持原樣 */
+body:not(.mini-mode) .buff-banner{top:auto;bottom:18px;padding:10px 20px;font-size:16px;pointer-events:none;opacity:.94;}
 @keyframes buffPulse{from{box-shadow:0 0 0 0 rgba(255,92,92,.7)}to{box-shadow:0 0 0 14px rgba(255,92,92,0)}}
 
 /* ============ Motion polish：按鈕回饋 + 即時數字變化動畫（附加層，不影響原有排版與邏輯） ============ */
@@ -2954,6 +2958,24 @@ div.anim-num{display:flex;}
     return null;
   }
 
+  // 數值與 % 不吻合時，試著只改「一個位數」讓它落進 % 反推值的容許範圍；
+  // 有多個候選時取離反推值最近、且最接近原讀數的那個；找不到就回傳 null（由呼叫端退回用 % 反推）
+  function repairExpSingleDigit(cur, derived, tol){
+    const str=String(Math.max(0,Math.round(cur)));
+    let best=null, bestKey=null;
+    for(let i=0;i<str.length;i++){
+      for(let d=0;d<=9;d++){
+        if(String(d)===str[i]) continue;
+        const cand=parseInt(str.slice(0,i)+d+str.slice(i+1),10);
+        const off=Math.abs(cand-derived);
+        if(off>tol) continue;
+        const key=off+Math.abs(cand-cur)*1e-6;
+        if(bestKey===null || key<bestKey){ best=cand; bestKey=key; }
+      }
+    }
+    return best;
+  }
+
   function stabilizeExp(parsed){
     if(!parsed) return null;
     if(parsed.percent===null || parsed.percent===undefined || !Number.isFinite(parsed.percent) || parsed.percent<0 || parsed.percent>100){
@@ -2968,15 +2990,27 @@ div.anim-num{display:flex;}
         parsed.current=derived;
         parsed.currentSource='percent';
       }else{
-        const diffRatio=Math.abs(parsed.current-derived)/Math.max(totalExp,1);
-        if(diffRatio>0.01){
-          parsed.current=derived;
-          parsed.currentSource='percent';
-        }else{
+        // 遊戲顯示的 % 只有兩位小數（解析度 0.01%），所以數值與反推值的合理誤差不超過 ±0.01% × 升級所需經驗
+        // （再多留一點餘裕給四捨五入／截斷差異）。舊版容許到 1%，OCR 錯一個千位數都放得過去。
+        const tol=Math.max(2, Math.ceil(totalExp*0.00012));
+        const within=(c)=>Math.abs(c-derived)<=tol;
+        if(within(parsed.current)){
           parsed.currentSource='ocr_verified';
+        }else{
+          // 先嘗試只改一個位數就能落進 % 容許範圍（最常見的 OCR 誤判：某一位被讀成長得像的數字）
+          const fixed=repairExpSingleDigit(parsed.current, derived, tol);
+          if(fixed!==null){
+            parsed.rawCurrent=parsed.current;
+            parsed.current=fixed;
+            parsed.currentSource='ocr_repaired';
+          }else{
+            parsed.rawCurrent=parsed.current;
+            parsed.current=derived;
+            parsed.currentSource='percent';
+          }
         }
       }
-      parsed.ratioMatch = Math.abs(parsed.current-derived)/Math.max(totalExp,1) <= 0.01;
+      parsed.ratioMatch = Math.abs(parsed.current-derived)<=Math.max(2, Math.ceil(totalExp*0.00012));
     }
     return parsed;
   }
@@ -3218,7 +3252,10 @@ div.anim-num{display:flex;}
                 }else if(progress!==null){
                   state.expRecentProgress.push(progress);
                   if(state.expRecentProgress.length>3) state.expRecentProgress.shift();
-                  const smoothed = state.expRecentProgress.length>=3
+                  // 經驗值是單調上升的，取最近 3 筆中位數會讓數值固定落後一筆（log 實例：原始 2592011 被改成 2591883）。
+                  // 已通過 % 交叉驗證的讀數（ocr_verified／ocr_repaired）直接採用，不做平滑。
+                  const verified = parsed.currentSource==='ocr_verified' || parsed.currentSource==='ocr_repaired';
+                  const smoothed = (!verified && state.expRecentProgress.length>=3)
                     ? median(state.expRecentProgress)
                     : progress;
                   if(Math.round(smoothed)!==Math.round(progress)){
