@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>MapleChoco V1.0</title>
+<title>MapleChoco V1.01</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -354,7 +354,7 @@ div.anim-num{display:flex;}
   <div id="miniHud">
     <div id="miniHudHeader">
       <span class="mini-drag-dots">⠿</span>
-      <span class="mini-title">MapleChoco V1.0</span>
+      <span class="mini-title">MapleChoco V1.01</span>
       <button class="btn ghost small" id="btnMiniUltra" title="只保留：預測升級時間／每10分鐘經驗與收益／經驗條與經驗圖表">精簡</button>
       <button class="btn ghost small" id="btnMiniRestore" title="還原成完整版面">還原</button>
     </div>
@@ -481,7 +481,7 @@ div.anim-num{display:flex;}
 
   <div class="hero">
     <div>
-      <h1>MapleChoco V1.0</h1>
+      <h1>MapleChoco V1.01</h1>
       <p>擷取遊戲畫面，在本機以 OCR 辨識 HP／MP／EXP／楓幣／等級並估算每分鐘練功效率；另有「祈禱提醒」，祈禱倒數到設定秒數時提醒一次。所有運算都在瀏覽器內完成，畫面不會上傳。</p>
     </div>
     <div class="hero-actions">
@@ -3254,7 +3254,7 @@ div.anim-num{display:flex;}
                   if(state.expRecentProgress.length>3) state.expRecentProgress.shift();
                   // 經驗值是單調上升的，取最近 3 筆中位數會讓數值固定落後一筆（log 實例：原始 2592011 被改成 2591883）。
                   // 已通過 % 交叉驗證的讀數（ocr_verified／ocr_repaired）直接採用，不做平滑。
-                  const verified = parsed.currentSource==='ocr_verified' || parsed.currentSource==='ocr_repaired';
+                  const verified = parsed.confidence==='anchored_bracket' || parsed.currentSource==='ocr_verified' || parsed.currentSource==='ocr_repaired';
                   const smoothed = (!verified && state.expRecentProgress.length>=3)
                     ? median(state.expRecentProgress)
                     : progress;
