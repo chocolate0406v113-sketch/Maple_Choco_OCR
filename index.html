@@ -229,6 +229,113 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
 
 .buff-banner{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99999;padding:14px 26px;border-radius:12px;background:#d9363e;color:#fff;font-size:20px;font-weight:700;letter-spacing:.5px;box-shadow:0 8px 30px rgba(0,0,0,.45);cursor:pointer;animation:buffPulse .6s ease-in-out infinite alternate;}
 @keyframes buffPulse{from{box-shadow:0 0 0 0 rgba(255,92,92,.7)}to{box-shadow:0 0 0 14px rgba(255,92,92,0)}}
+
+/* ============ Motion polish：按鈕回饋 + 即時數字變化動畫（附加層，不影響原有排版與邏輯） ============ */
+
+/* ---- 按鈕：懸停、按下、狀態切換（效果明顯版） ---- */
+.btn,.mode-tab,.calib-btn{
+  position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent;
+  transition:background-color .22s ease,border-color .22s ease,color .22s ease,
+             box-shadow .28s ease,transform .22s cubic-bezier(.34,1.56,.64,1),opacity .2s ease;
+}
+/* 懸停：上浮 + 光暈 + 一道光掃過 */
+.btn:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 10px 24px -8px rgba(255,255,255,.35);border-color:#6a6a6a;}
+.btn.primary:not(:disabled):hover{box-shadow:0 10px 30px -6px rgba(255,255,255,.7);border-color:#fff;}
+.btn::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);
+  transform:translateX(-130%);transition:transform .7s ease;
+}
+.btn.primary::before{background:linear-gradient(105deg,transparent 35%,rgba(0,0,0,.14) 50%,transparent 65%);}
+.btn:not(:disabled):hover::before{transform:translateX(130%);}
+/* 按下：明顯下沉縮小 */
+.btn:not(:disabled):active,.calib-btn:not(:disabled):active,.mode-tab:active{
+  transform:translateY(1px) scale(.9);box-shadow:none;transition-duration:.07s;
+}
+.btn:focus-visible,.calib-btn:focus-visible,.mode-tab:focus-visible{outline:2px solid #fff;outline-offset:2px;}
+
+/* 紅色按鈕：停止擷取畫面（擷取中顯示紅底白字） */
+.btn.danger,#btnMiniStopCapture:not(:disabled){
+  background:#e5393f;border-color:#e5393f;color:#fff;--mc-ring:rgba(229,57,63,.8);
+  box-shadow:0 4px 16px -4px rgba(229,57,63,.65);
+}
+.btn.danger:not(:disabled):hover,#btnMiniStopCapture:not(:disabled):hover{
+  background:#f24c53;border-color:#f24c53;box-shadow:0 10px 28px -4px rgba(242,76,83,.85);
+}
+.btn.danger:not(:disabled):active,#btnMiniStopCapture:not(:disabled):active{background:#c92c32;border-color:#c92c32;}
+
+/* 尚未擷取任何畫面時：擷取畫面按鈕發亮提醒 */
+.btn.need-capture:not(:disabled){
+  border-color:#f4c752 !important;
+  animation:mcNeedCapture 1.4s ease-in-out infinite;
+}
+@keyframes mcNeedCapture{
+  0%,100%{box-shadow:0 0 0 0 rgba(244,199,82,0),0 0 6px 1px rgba(244,199,82,.45);}
+  50%{box-shadow:0 0 0 3px rgba(244,199,82,.25),0 0 16px 4px rgba(244,199,82,.9);}
+}
+@media (prefers-reduced-motion:reduce){
+  .btn.need-capture:not(:disabled){animation:none !important;box-shadow:0 0 12px 3px rgba(244,199,82,.8);}
+}
+
+/* 分頁籤／校準按鈕 */
+.mode-tab{user-select:none;}
+.mode-tab:not(.active):hover{color:var(--text-primary);background:#1a1a1a;}
+.calib-btn:not(:disabled):hover{border-color:#6a6a6a;background:#111;transform:translateY(-1px);}
+.calib-btn.active{box-shadow:0 0 0 1px #fff,0 0 18px rgba(255,255,255,.35);}
+.calib-btn.done .state{animation:mcStatePop .55s cubic-bezier(.34,1.56,.64,1);}
+@keyframes mcStatePop{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
+
+/* 按鈕文字切換（開始↔停止、開始分析↔暫停分析…）：縮放彈跳 + 光環擴散 */
+.btn.mc-swap{animation:mcBtnSwap .65s cubic-bezier(.34,1.56,.64,1);}
+@keyframes mcBtnSwap{
+  0%{transform:scale(.8);box-shadow:0 0 0 0 var(--mc-ring,rgba(255,255,255,.75))}
+  55%{transform:scale(1.08)}
+  100%{transform:scale(1);box-shadow:0 0 0 14px transparent}
+}
+
+/* 點擊漣漪 */
+.mc-ripple{
+  position:absolute;border-radius:50%;pointer-events:none;background:currentColor;opacity:.38;
+  transform:scale(0);animation:mcRipple .7s ease-out forwards;
+}
+@keyframes mcRipple{to{transform:scale(1);opacity:0}}
+
+/* 狀態燈 */
+.status-pill .dot{transition:background-color .3s ease,box-shadow .3s ease;}
+.status-pill.live .dot{box-shadow:0 0 8px var(--accent-leaf);}
+.status-pill.rec .dot{box-shadow:0 0 8px var(--accent-hp);}
+
+/* ---- 即時數字：逐位數字滾輪（像里程表／撥盤），每一位各自上下滾動到新數字 ---- */
+.anim-num{display:inline-flex;align-items:center;vertical-align:bottom;white-space:pre;font-variant-numeric:tabular-nums;}
+div.anim-num{display:flex;}
+.mc-cell{display:inline-block;flex:none;height:1.3em;line-height:1.3em;}
+.mc-wheel{
+  position:relative;overflow:hidden;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 20%,#000 80%,transparent 100%);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 20%,#000 80%,transparent 100%);
+}
+.mc-strip{display:block;white-space:pre;text-align:center;line-height:1.3em;will-change:transform;}
+
+/* 能量條：更柔和的緩動 */
+.hud-bar .fill{transition:width .7s cubic-bezier(.22,1,.36,1);}
+
+
+/* 每10分平均經驗的趨勢箭頭：紅 ▲ 增加、綠 ▼ 下降 */
+.mc-trend{display:inline-block;margin-left:.35em;font-size:.7em;line-height:1;vertical-align:middle;}
+.mc-trend:empty{display:none;}
+.mc-trend.up{color:#ff4d4f;}
+.mc-trend.down{color:#4ade80;}
+.mc-trend.up.pop{animation:mcTrendUp .5s cubic-bezier(.34,1.56,.64,1);}
+.mc-trend.down.pop{animation:mcTrendDown .5s cubic-bezier(.34,1.56,.64,1);}
+@keyframes mcTrendUp{0%{transform:translateY(.7em) scale(.4);opacity:0}100%{transform:none;opacity:1}}
+@keyframes mcTrendDown{0%{transform:translateY(-.7em) scale(.4);opacity:0}100%{transform:none;opacity:1}}
+
+/* 尊重系統「減少動態效果」設定 */
+@media (prefers-reduced-motion:reduce){
+  .btn,.btn::before,.mode-tab,.calib-btn,.hud-bar .fill{transition:none !important;}
+  .btn.mc-swap,.calib-btn.done .state,.mc-trend.pop{animation:none !important;}
+  .mc-ripple{display:none !important;}
+}
 </style>
 </head>
 <body>
@@ -304,25 +411,30 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
             <div class="mini-sub" id="miniStatExpRecentSub">尚無資料</div>
           </div>
           <div>
-            <div class="mini-label">預計花費時間</div>
+            <div class="mini-label">預計耗時</div>
             <div class="mini-value" id="miniStatExpEta" style="font-size:15px;color:var(--accent-exp);">--</div>
             <div class="mini-sub eg-hide-ultra" id="miniStatExpEtaSub">尚無資料</div>
+          </div>
+          <div class="eg-ultra-only">
+            <div class="mini-label">預計升級時間</div>
+            <div class="mini-value" id="miniUltraEtaClock" style="font-size:15px;">--</div>
           </div>
           <div>
             <div class="mini-label">當前時間</div>
             <div class="mini-value" id="miniStatNowClock" style="font-size:15px;">--:--:--</div>
             <div class="mini-sub eg-hide-ultra">&nbsp;</div>
           </div>
-          <div class="eg-ultra-only">
-            <div class="mini-label">預計升級時間</div>
-            <div class="mini-value" id="miniUltraEtaClock" style="font-size:15px;">--</div>
+          <div>
+            <div class="mini-label">已啟用紀錄時間</div>
+            <div class="mini-value" id="miniActiveRecTime" style="font-size:15px;color:#ff4d4f;">--:--</div>
+            <div class="mini-sub eg-hide-ultra">&nbsp;</div>
           </div>
           <div class="eg-ultra-only">
-            <div class="mini-label">每10分鐘平均獲得經驗值</div>
+            <div class="mini-label">每10分平均經驗</div>
             <div class="mini-value" id="miniUltraExpPer10" style="color:var(--accent-exp);">--</div>
           </div>
           <div class="eg-ultra-only">
-            <div class="mini-label">每10分鐘淨收益</div>
+            <div class="mini-label">每10分平均楓幣</div>
             <div class="mini-value" id="miniUltraMesoPer10" style="color:var(--accent-meso);">--</div>
           </div>
         </div>
@@ -417,7 +529,7 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
           <div class="mini-sub" id="statExpRecentSub">尚無資料</div>
         </div>
         <div>
-          <div class="mini-label">預計花費時間</div>
+          <div class="mini-label">預計耗時</div>
           <div class="mini-value" id="statExpEta" style="font-size:15px;color:var(--accent-exp);">--</div>
           <div class="mini-sub" id="statExpEtaSub">尚無資料</div>
           <span id="statExpEtaClock" style="display:none;">--</span>
@@ -3859,6 +3971,20 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
     copyText('hudExpText','miniHudExpTextUltra'); copyWidth('hudExpFill','miniHudExpFillUltra');
     copyText('hudMesoText','miniHudMesoText');
     copyText('sumTime','miniSumTime');
+    {
+      const src = document.getElementById('sumTime'), dst = byId('miniActiveRecTime');
+      if(src && dst){
+        const m = /^(\d+):(\d{2})$/.exec(src.textContent.trim());
+        let txt = '--:--';
+        if(m){
+          const tot = parseInt(m[1],10)*60 + parseInt(m[2],10);
+          const h = Math.floor(tot/3600), mm = Math.floor((tot%3600)/60), ss = tot%60;
+          txt = h > 0 ? (h + ':' + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0'))
+                      : (String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0'));
+        }
+        if(dst.textContent !== txt) dst.textContent = txt;
+      }
+    }
     copyText('sumSamples','miniSumSamples');
     copyText('sumUpdated','miniSumUpdated');
     copyText('expDetailLv','miniExpDetailLv');
@@ -4536,6 +4662,8 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
   function syncCaptureToggle(){
     const capturing = btnStartCapture.disabled && !btnStopCapture.disabled;
     const label = capturing ? '停止擷取' : '開始擷取畫面';
+    btnToggleCapture.classList.toggle('need-capture', !capturing);
+    btnMiniStartCapture.classList.toggle('need-capture', !capturing);
     if(btnToggleCapture.textContent !== label){
       btnToggleCapture.textContent = label;
       btnToggleCapture.classList.toggle('danger', capturing);
@@ -4564,6 +4692,274 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
 
   initChart();
   setStatus('尚未開始擷取畫面');
+})();
+</script>
+<script>
+// ============ Motion polish：撥盤式滾動數字 + 按鈕回饋（附加模組） ============
+// 做法：把「會自己變動的數字元素」拆成一格一格：數字那格是一個 0–9 的垂直滾輪，
+// 其他符號（逗號、斜線、%、萬、單位）是固定格。數字變動時，每一位各自朝變化方向滾到新數字，
+// 像電子時鐘／里程表的撥盤。原本程式照舊寫 el.textContent = '1,234'，這裡覆寫 setter 接手；
+// getter 一律回傳「最終值」，迷你面板同步（比較／複製文字）不受動畫影響。
+//  - 滾動用 CSS transition，搭配 setTimeout 收尾：分頁在背景時動畫被暫停也一定停在正確數字。
+//  - 元素看不見（迷你面板未開、分頁隱藏）時直接顯示最終值，不做動畫。
+//  - 置頂小視窗（Picture-in-Picture）同樣有效；系統開啟「減少動態效果」時自動停用。
+(function(){
+  "use strict";
+
+  /*PURE_START*/
+  const isD = c => c >= '0' && c <= '9';
+
+  // 判斷「變大還是變小」，決定滾輪往哪個方向滾。支援一般數字、12萬3456、時間長度（3天2小時15分／45 秒）
+  function valueOf(t){
+    let m = /^(\d+) 秒$/.exec(t);
+    if(m) return Number(m[1]) / 60;
+    m = /^(?:(\d+)天)?(?:(\d+)小時)?(\d+)分$/.exec(t);
+    if(m) return Number(m[1]||0)*1440 + Number(m[2]||0)*60 + Number(m[3]);
+    m = /^([+-]?)(\d+)萬(\d{4})?$/.exec(t);
+    if(m) return (m[1]==='-'?-1:1) * (Number(m[2])*10000 + Number(m[3]||0));
+    m = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d+)$/.exec(t);
+    if(m) return (m[1]==='-'?-1:1) * Number(m[2].replace(/,/g,''));
+    const d = t.replace(/[^0-9]/g,'');
+    return d ? Number(d) : null;
+  }
+  function direction(from, to){
+    const a = valueOf(from), b = valueOf(to);
+    if(a === null || b === null) return 1;
+    return b < a ? -1 : 1;
+  }
+
+  // 新舊字串是否「骨架相同」（長度一樣、數字位置一樣、符號一樣）→ 可原地滾動
+  function sameShape(a, b){
+    if(a.length !== b.length) return false;
+    for(let i=0;i<a.length;i++){
+      const da = isD(a[i]), db = isD(b[i]);
+      if(da !== db) return false;
+      if(!da && a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+  // 滾輪要轉幾格：dir>0 往上滾（數字變大），dir<0 往下滾；永遠沿著變化方向走（9→0 繼續往上）
+  function rollSteps(from, to, dir){
+    return dir > 0 ? (to - from + 10) % 10 : (from - to + 10) % 10;
+  }
+  /*PURE_END*/
+
+  if(typeof document === 'undefined') return;
+
+  const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const tcDesc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+  const rawGet = el => tcDesc.get.call(el);
+  const rawSet = (el, t) => tcDesc.set.call(el, t);
+
+  const ROW = 1.3;                    // 每一列的高度（em），要和 CSS 的 .mc-cell 高度一致
+  const DUR = 780;                    // 滾動時間（毫秒）
+  const EASE = 'cubic-bezier(.16,.84,.24,1)';
+  const STAGGER = 35;                 // 各位數之間的起滾時間差（個位先動，再往高位）
+  const STRIP = '0123456789'.repeat(3).split('').join('\n');   // 三圈 0–9，讓任何方向都有得滾
+
+  const rowY = row => 'translateY(' + (-row * ROW) + 'em)';
+
+  function settle(c){
+    c.strip.style.transition = 'none';
+    c.strip.style.transform = rowY(10 + c.digit);
+    c.rolling = false;
+  }
+
+  // 把元素內容重建成一格一格；starts[i] 有值的數字格先停在該數字（之後再滾到目標）
+  function build(el, text, starts){
+    const doc = el.ownerDocument;
+    rawSet(el, '');
+    const cells = [];
+    for(let i=0;i<text.length;i++){
+      const ch = text[i];
+      const cell = doc.createElement('span');
+      cell.className = 'mc-cell';
+      if(isD(ch)){
+        cell.classList.add('mc-wheel');
+        const strip = doc.createElement('span');
+        strip.className = 'mc-strip';
+        strip.textContent = STRIP;
+        cell.appendChild(strip);
+        const start = (starts && starts[i] !== undefined) ? starts[i] : Number(ch);
+        strip.style.transform = rowY(10 + start);
+        cells.push({cell, strip, digit:start, target:Number(ch), rolling:false, to:0});
+      }else{
+        cell.textContent = ch;
+        cells.push({cell, strip:null});
+      }
+      el.appendChild(cell);
+    }
+    el.__mcCells = cells;
+    return cells;
+  }
+
+  function roll(c, to, dir, delay){
+    const strip = c.strip, win = strip.ownerDocument.defaultView;
+    const from = c.digit;
+    const steps = rollSteps(from, to, dir);
+    if(c.to){ clearTimeout(c.to); c.to = 0; }
+    if(steps === 0 && !c.rolling){ return; }
+    if(c.rolling){
+      // 上一段還沒滾完：從目前實際位置接著滾，不會跳一下
+      try{
+        const cs = win.getComputedStyle(strip).transform;
+        if(cs && cs !== 'none'){
+          const y = new win.DOMMatrixReadOnly(cs).m42;
+          strip.style.transition = 'none';
+          strip.style.transform = 'translateY(' + y + 'px)';
+          void strip.offsetWidth;
+        }
+      }catch(e){}
+    }
+    const base = 10 + from;
+    const row = dir > 0 ? base + steps : base - steps;
+    strip.style.transition = 'transform ' + DUR + 'ms ' + EASE + ' ' + delay + 'ms';
+    strip.style.transform = rowY(row);
+    c.digit = to; c.rolling = true;
+    c.to = setTimeout(()=> settle(c), DUR + delay + 80);   // 保底收尾：背景分頁動畫被暫停也會停在正確數字
+  }
+
+  function show(el, prev, target){
+    const doc = el.ownerDocument, win = doc && doc.defaultView;
+    const visible = !reduce && win && !doc.hidden && el.isConnected && el.getClientRects().length > 0;
+    // 先把還在滾的收掉，避免舊的計時器影響重建後的格子
+    if(el.__mcCells) el.__mcCells.forEach(c=>{ if(c.to) clearTimeout(c.to); });
+    if(!visible){ build(el, target); return; }
+
+    const dir = FORCE_UP[el.id] ? 1 : direction(prev, target);
+    if(el.__mcCells && sameShape(prev, target)){
+      // 原地滾動：只有數字變了的那幾位會動，個位先動
+      const n = target.length;
+      for(let i=0;i<n;i++){
+        const c = el.__mcCells[i];
+        if(!c.strip) continue;
+        const to = Number(target[i]);
+        if(to !== c.digit || c.rolling) roll(c, to, dir, (n - 1 - i) * STAGGER);
+      }
+    }else{
+      // 骨架變了（位數增減、從 "--" 變成數字…）：靠右對齊，舊位數接著轉，新的位數從 0 滾上來
+      const starts = [];
+      const off = target.length - prev.length;
+      for(let i=0;i<target.length;i++){
+        if(!isD(target[i])) continue;
+        const j = i - off;
+        starts[i] = (j >= 0 && j < prev.length && isD(prev[j])) ? Number(prev[j]) : 0;
+      }
+      const cells = build(el, target, starts);
+      void el.offsetWidth;
+      const n = target.length;
+      for(let i=0;i<n;i++){
+        const c = cells[i];
+        if(c.strip) roll(c, c.target, dir, (n - 1 - i) * STAGGER);
+      }
+    }
+  }
+
+  function install(el){
+    if(!el || el.__mcInstalled) return;
+    el.__mcInstalled = true;
+    el.classList.add('anim-num');
+    el.__mcText = rawGet(el);
+    build(el, el.__mcText);
+    Object.defineProperty(el, 'textContent', {
+      configurable: true,
+      get(){ return el.__mcText; },
+      set(v){
+        v = String(v);
+        const prev = el.__mcText;
+        if(v === prev) return;
+        el.__mcText = v;
+        show(el, prev, v);
+      }
+    });
+  }
+
+  // 只有這幾個用撥盤：當前時間、預計耗時、預計升級時間、角色當前 EXP
+  const NUM_IDS = [
+    'statNowClock','statExpEta','hudExpText',
+    'miniStatNowClock','miniStatExpEta','miniUltraEtaClock','miniHudExpText','miniHudExpTextUltra'
+  ];
+  const FORCE_UP = {statNowClock:1, miniStatNowClock:1};   // 時鐘永遠往上滾（含 59→00、下午12→1 的換位）
+  NUM_IDS.forEach(id => install(document.getElementById(id)));
+
+  // ---- 每10分平均經驗：數字後面加趨勢箭頭 ----
+  // 比上一筆資料增加 → 紅色 ▲；下降 → 綠色 ▼；沒變就維持上一次的箭頭；數值變成 "--" 時清除。
+  (function trendArrow(){
+    const el = document.getElementById('miniUltraExpPer10');
+    if(!el) return;
+    const arrow = document.createElement('span');
+    arrow.className = 'mc-trend';
+    let text = rawGet(el), prev = null;
+    const num = t => {
+      const m = /^-?\d[\d,]*(?:\.\d+)?/.exec(String(t).trim());
+      return m ? parseFloat(m[0].replace(/,/g,'')) : null;
+    };
+    function paint(dir){
+      arrow.className = 'mc-trend';
+      arrow.textContent = dir > 0 ? '▲' : dir < 0 ? '▼' : '';
+      if(!dir) return;
+      arrow.classList.add(dir > 0 ? 'up' : 'down');
+      if(reduce) return;
+      void arrow.offsetWidth;                  // 重新觸發彈出動畫
+      arrow.classList.add('pop');
+    }
+    const n0 = num(text); if(n0 !== null) prev = n0;
+    Object.defineProperty(el, 'textContent', {
+      configurable: true,
+      get(){ return text; },
+      set(v){
+        v = String(v);
+        if(v === text) return;                 // 每秒重寫同樣的文字，不算新資料
+        text = v;
+        const n = num(v);
+        if(n === null){ prev = null; paint(0); }
+        else{
+          if(prev !== null && n !== prev) paint(n > prev ? 1 : -1);
+          prev = n;
+        }
+        rawSet(el, v);
+        el.appendChild(arrow);
+      }
+    });
+    rawSet(el, text);
+    el.appendChild(arrow);
+  })();
+
+  // ---- 按鈕：點擊漣漪 ----
+  function addRipple(e){
+    if(e.__mcRp || reduce) return;
+    const t = e.target && e.target.closest && e.target.closest('.btn,.mode-tab,.calib-btn');
+    if(!t || t.disabled) return;
+    e.__mcRp = true;
+    const r = t.getBoundingClientRect();
+    const size = Math.max(r.width, r.height) * 2;
+    const s = t.ownerDocument.createElement('span');
+    s.className = 'mc-ripple';
+    s.style.width = s.style.height = size + 'px';
+    s.style.left = (e.clientX - r.left - size/2) + 'px';
+    s.style.top  = (e.clientY - r.top  - size/2) + 'px';
+    t.appendChild(s);
+    setTimeout(()=>{ try{ s.remove(); }catch(_){} }, 650);
+  }
+  document.addEventListener('pointerdown', addRipple, true);
+  const miniHudEl = document.getElementById('miniHud');
+  if(miniHudEl) miniHudEl.addEventListener('pointerdown', addRipple, true);
+
+  // ---- 按鈕：文字切換時彈一下 ----
+  ['btnToggleCapture','btnToggleRun','btnMiniToggleRun','btnToggleStage','btnFloatHud','btnMiniUltra'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    let last = rawGet(el).trim();
+    new MutationObserver(()=>{
+      const now = rawGet(el).trim();
+      if(now === last) return;
+      last = now;
+      if(reduce) return;
+      el.classList.remove('mc-swap'); void el.offsetWidth; el.classList.add('mc-swap');
+      clearTimeout(el.__mcSt);
+      el.__mcSt = setTimeout(()=> el.classList.remove('mc-swap'), 600);
+    }).observe(el, {childList:true, characterData:true, subtree:true});
+  });
 })();
 </script>
 </body>
