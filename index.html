@@ -264,6 +264,10 @@ body.pip-mode #miniHud .chart-wrap{min-height:110px;}
 }
 .btn.danger:not(:disabled):active,#btnMiniStopCapture:not(:disabled):active{background:#c92c32;border-color:#c92c32;}
 
+/* EXP 條上方：累積增加的經驗與 %（綠字） */
+.exp-gain-line{display:none;justify-content:flex-end;gap:8px;font-family:var(--mono);font-size:11px;font-weight:700;color:#4ade80;margin-bottom:3px;white-space:nowrap;}
+.exp-gain-line.show{display:flex;}
+
 /* 尚未擷取任何畫面時：擷取畫面按鈕發亮提醒 */
 .btn.need-capture:not(:disabled){
   border-color:#f4c752 !important;
@@ -379,6 +383,7 @@ div.anim-num{display:flex;}
             <div class="track"><div class="fill" id="miniHudMpFill"></div></div>
           </div>
           <div class="hud-bar exp">
+            <div class="exp-gain-line"><span class="eg-exp">--</span><span class="eg-pct">--</span></div>
             <div class="label"><span>EXP</span><b id="miniHudExpText">--%</b></div>
             <div class="track"><div class="fill" id="miniHudExpFill"></div></div>
           </div>
@@ -387,6 +392,7 @@ div.anim-num{display:flex;}
       </div>
 
       <div class="hud-bar exp eg-ultra-only" style="margin-bottom:8px;">
+        <div class="exp-gain-line"><span class="eg-exp">--</span><span class="eg-pct">--</span></div>
         <div class="label"><span>EXP</span><b id="miniHudExpTextUltra">--%</b></div>
         <div class="track"><div class="fill" id="miniHudExpFillUltra"></div></div>
       </div>
@@ -500,6 +506,7 @@ div.anim-num{display:flex;}
         <div class="track"><div class="fill" id="hudMpFill"></div></div>
       </div>
       <div class="hud-bar exp">
+        <div class="exp-gain-line"><span class="eg-exp">--</span><span class="eg-pct">--</span></div>
         <div class="label"><span>EXP</span><b id="hudExpText">--%</b></div>
         <div class="track"><div class="fill" id="hudExpFill"></div></div>
       </div>
@@ -3400,6 +3407,20 @@ div.anim-num{display:flex;}
       const first = expHist[0].v;
       const firstProgress = expProgressOf(first, effTotalExp);
       const lastProgress = expProgressOf(last, effTotalExp);
+      {
+        // EXP 條上方的綠字：自開始／上次升級起累積增加的經驗與 %（淨減少時保留上一次的值）
+        let gExp = null, gPct = null;
+        if(firstProgress!==null && lastProgress!==null){
+          gExp = lastProgress - firstProgress;
+          if(effTotalExp>0) gPct = gExp / effTotalExp * 100;
+        }
+        if(gPct===null && first.percent!==null && last.percent!==null && first.percent<=100 && last.percent<=100){
+          gPct = last.percent - first.percent;
+        }
+        if((gExp!==null && gExp>=0) || (gPct!==null && gPct>=0)){
+          state.expGainInfo = { exp: (gExp!==null && gExp>=0) ? gExp : null, pct: (gPct!==null && gPct>=0) ? gPct : null };
+        }
+      }
       let avgRate = null;
       if(firstProgress!==null && lastProgress!==null && expMin>0){
         avgRate = (lastProgress - firstProgress) / expMin;
@@ -3926,6 +3947,21 @@ div.anim-num{display:flex;}
     miniChart.update('none');
   }
 
+  function renderExpGain(){
+    const info = state.expGainInfo;
+    const els = new Set(document.querySelectorAll('.exp-gain-line'));
+    if(typeof miniHud!=='undefined' && miniHud) miniHud.querySelectorAll('.exp-gain-line').forEach(e=>els.add(e));
+    els.forEach(el=>{
+      const eExp = el.querySelector('.eg-exp'), ePct = el.querySelector('.eg-pct');
+      if(!info){ el.classList.remove('show'); return; }
+      el.classList.add('show');
+      const t1 = info.exp!==null ? '+' + fmtWan(info.exp) : '';
+      const t2 = info.pct!==null ? '+' + fmt(info.pct,3) + '%' : '';
+      if(eExp.textContent !== t1) eExp.textContent = t1;
+      if(ePct.textContent !== t2) ePct.textContent = t2;
+    });
+  }
+
   function renderUltraRates(){
     const expEl = miniHud.querySelector('#miniUltraExpPer10');
     if(expEl){
@@ -4001,12 +4037,14 @@ div.anim-num{display:flex;}
     copyText('statExpGained','miniStatExpGained');
     copyText('statMesoNet','miniStatMesoNet');
     renderUltraRates();
+    renderExpGain();
     if(miniChartRenderedVersion !== state.chartVersion) renderMiniChart();
     syncMiniActionButtons();
   }
   setInterval(syncMiniHud, 1000);
 
   function updateHud(){
+    renderExpGain();
     const hp = state.lastGood.hp, mp = state.lastGood.mp, exp = state.lastGood.exp, meso = state.lastGood.meso, lv = state.lastGood.lv;
     if(lv!==null && lv!==undefined){
       document.getElementById('hudLv').textContent = lv;
@@ -4631,6 +4669,7 @@ div.anim-num{display:flex;}
       state.curExpRateKind = null;
       state.curExpRateValue = null;
       state.curMesoRateValue = null;
+      state.expGainInfo = null;
       ['statExp','statHp','statMp','statMeso','statExpRecent','statExpEta'].forEach(id=>document.getElementById(id).textContent='--');
       ['statExpSub','statHpSub','statMpSub','statMesoSub','statExpRecentSub','statExpEtaSub'].forEach(id=>document.getElementById(id).textContent='尚無資料');
       document.getElementById('expDetailLv').textContent = '--';
