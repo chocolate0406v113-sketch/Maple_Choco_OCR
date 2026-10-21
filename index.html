@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>MapleChoco V1.01</title>
+<title>MapleChoco V1.02</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -354,7 +354,7 @@ div.anim-num{display:flex;}
   <div id="miniHud">
     <div id="miniHudHeader">
       <span class="mini-drag-dots">⠿</span>
-      <span class="mini-title">MapleChoco V1.01</span>
+      <span class="mini-title">MapleChoco V1.02</span>
       <button class="btn ghost small" id="btnMiniUltra" title="只保留：預測升級時間／每10分鐘經驗與收益／經驗條與經驗圖表">精簡</button>
       <button class="btn ghost small" id="btnMiniRestore" title="還原成完整版面">還原</button>
     </div>
@@ -481,7 +481,7 @@ div.anim-num{display:flex;}
 
   <div class="hero">
     <div>
-      <h1>MapleChoco V1.01</h1>
+      <h1>MapleChoco V1.02</h1>
       <p>擷取遊戲畫面，在本機以 OCR 辨識 HP／MP／EXP／楓幣／等級並估算每分鐘練功效率；另有「祈禱提醒」，祈禱倒數到設定秒數時提醒一次。所有運算都在瀏覽器內完成，畫面不會上傳。</p>
     </div>
     <div class="hero-actions">
@@ -865,6 +865,12 @@ div.anim-num{display:flex;}
   const EXP_REGIME_CONFIRM_SAMPLES = 4;
   const EXP_PENDING_WINDOW_CAP = 8;
   const EXP_PENDING_STALE_MS = 5*60*1000;
+  // 經驗值在同一級內只會增加（升級已另外處理）。比「已採信最高值」還低的讀數一律先當 OCR 誤判擋掉，
+  // 只有「連續很多筆、持續很久、彼此一致」才承認是真的扣經驗（例如死亡），避免誤判被當成新常態。
+  const EXP_DROP_TOL_RATIO = 0.0005;        // 容許的 OCR 抖動：本級總經驗的 0.05%
+  const EXP_DROP_TOL_MIN = 50;              // 沒有總經驗可參考時的最小容許值
+  const EXP_DROP_CONFIRM_SAMPLES = 10;      // 低值要連續這麼多筆…
+  const EXP_DROP_CONFIRM_MS = 60*1000;      // …且橫跨這麼久，才承認不是誤判
 
   function robustExpSlope(points){
     const slopes=[];
@@ -920,6 +926,8 @@ div.anim-num{display:flex;}
     lvHistory:[],
     expTrendWindow:[],
     expPendingWindow:[],
+    expHighWater:null,      // 本級已採信的最高經驗 {t, progress}
+    expDropPending:[],      // 連續低於最高值的可疑讀數（尚未被採信）
     expBaselineOk:false,    // 統計起點是否已通過離群檢查
     expTotalSamples:[],     // 由 current/% 反推的「本級總經驗」估計值（等級 OCR 失敗時的備援）
     expRecentProgress:[],
@@ -3069,6 +3077,33 @@ div.anim-num{display:flex;}
     const floor = guardTotal ? guardTotal*0.004 : 1;
     const pending = state.expPendingWindow;
 
+    // ---- 單調性防線：比已採信最高值低 → 先擋下，不進趨勢視窗／歷史／統計 ----
+    const hw = state.expHighWater;
+    if(hw){
+      const dipTol = guardTotal ? Math.max(EXP_DROP_TOL_MIN, guardTotal*EXP_DROP_TOL_RATIO) : EXP_DROP_TOL_MIN;
+      if(progress < hw.progress - dipTol){
+        const dp = state.expDropPending;
+        if(dp.length && (nowT - dp[dp.length-1].t) > EXP_PENDING_STALE_MS) dp.length = 0;
+        dp.push({t:nowT, progress});
+        if(dp.length > 60) dp.shift();
+        const span = nowT - dp[0].t;
+        if(dp.length >= EXP_DROP_CONFIRM_SAMPLES && span >= EXP_DROP_CONFIRM_MS
+           && isSelfConsistentTrend(dp, guardTotal)){
+          const ps = robustExpSlope(dp);
+          if(ps!==null && ps >= 0){
+            state.expTrendWindow = dp.slice(-EXP_TREND_WINDOW);
+            state.expHighWater = null;           // 以新水位重新起算（tickInner 會接著更新）
+            state.expDropPending = [];
+            state.expPendingWindow = [];
+            logLine('經驗值持續低於先前水位 ' + dp.length + ' 筆（約 ' + Math.round(span/1000) + ' 秒）且穩定，判定為真的扣經驗（如死亡），已接受新的經驗水位', true);
+            return {ok:true};
+          }
+        }
+        return {ok:false, reason:'經驗突然低於先前最高值 ' + fmt(hw.progress-progress,0) + '（容許 ±' + fmt(dipTol,0) + '）。經驗不會無故下降，視為 OCR 誤判，不進入統計（連續 ' + dp.length + '/' + EXP_DROP_CONFIRM_SAMPLES + ' 筆且持續 ' + Math.round(EXP_DROP_CONFIRM_MS/1000) + ' 秒以上才會當作真的扣經驗）'};
+      }
+      state.expDropPending.length = 0;           // 正常的一筆會打斷「連續低值」
+    }
+
     let bad=false, diff=0, tolerance=floor;
     if(win.length >= EXP_TREND_MIN_SAMPLES){
       const slope=robustExpSlope(win);
@@ -3150,6 +3185,10 @@ div.anim-num{display:flex;}
     state.chartLog.forEach(e=>{ if(badT.has(e.t)) e.exp=null; });
     const left=state.history.exp;
     state.lastGood.exp = left.length ? left[left.length-1].v : null;
+    {
+      const prog = left.map(h=>expProgressOf(h.v, getEffectiveTotalExp())).filter(v=>v!==null);
+      state.expHighWater = prog.length ? {t:left[left.length-1].t, progress:Math.max(...prog)} : null;
+    }
     state.expBaselineOk=true;
     logLine('經驗起點檢查：移除 ' + badIdx.length + ' 筆偏離趨勢的讀數（偏差 ' + badIdx.map(i=>fmt(residuals[i],0)).join('、') + '，容許 ±' + fmt(tolerance,0) + '），避免平均 EXP/分被誤判墊高', true);
   }
@@ -3223,6 +3262,8 @@ div.anim-num{display:flex;}
     state.history.exp = [];
     state.expTrendWindow = [];
     state.expPendingWindow = [];
+    state.expHighWater = null;
+    state.expDropPending = [];
     state.expRecentProgress = [];
     state.expBaselineOk = false;          // 新一級的起點也要重新驗證
     state.expTotalSamples = [];           // 換級後總經驗不同，估計值作廢
@@ -3347,6 +3388,7 @@ div.anim-num{display:flex;}
                   parsed.lvAt = state.lastGood.lv;   // 記下這筆屬於哪一級（升級時 log 用）
                   state.expTrendWindow.push({t:now, progress:smoothed});
                   if(state.expTrendWindow.length>EXP_TREND_WINDOW) state.expTrendWindow.shift();
+                  if(!state.expHighWater || smoothed > state.expHighWater.progress) state.expHighWater = {t:now, progress:smoothed};
                 }
               }
             }
@@ -4857,6 +4899,8 @@ div.anim-num{display:flex;}
       state.lastGood = {exp:null,hp:null,mp:null,meso:null,lv:null};
       state.expTrendWindow = [];
       state.expPendingWindow = [];
+      state.expHighWater = null;
+      state.expDropPending = [];
       state.expRecentProgress = [];
       state.expBaselineOk = false;
       state.expTotalSamples = [];
