@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>MapleChoco V1.02</title>
+<title>MapleChoco V1.03</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -354,7 +354,7 @@ div.anim-num{display:flex;}
   <div id="miniHud">
     <div id="miniHudHeader">
       <span class="mini-drag-dots">⠿</span>
-      <span class="mini-title">MapleChoco V1.02</span>
+      <span class="mini-title">MapleChoco V1.03</span>
       <button class="btn ghost small" id="btnMiniUltra" title="只保留：預測升級時間／每10分鐘經驗與收益／經驗條與經驗圖表">精簡</button>
       <button class="btn ghost small" id="btnMiniRestore" title="還原成完整版面">還原</button>
     </div>
@@ -481,7 +481,7 @@ div.anim-num{display:flex;}
 
   <div class="hero">
     <div>
-      <h1>MapleChoco V1.02</h1>
+      <h1>MapleChoco V1.03</h1>
       <p>擷取遊戲畫面，在本機以 OCR 辨識 HP／MP／EXP／楓幣／等級並估算每分鐘練功效率；另有「祈禱提醒」，祈禱倒數到設定秒數時提醒一次。所有運算都在瀏覽器內完成，畫面不會上傳。</p>
     </div>
     <div class="hero-actions">
@@ -930,6 +930,7 @@ div.anim-num{display:flex;}
     expDropPending:[],      // 連續低於最高值的可疑讀數（尚未被採信）
     expBaselineOk:false,    // 統計起點是否已通過離群檢查
     expTotalSamples:[],     // 由 current/% 反推的「本級總經驗」估計值（等級 OCR 失敗時的備援）
+    lvEvidence:[],          // 由「目前EXP ÷ %」對照等級表反推出的等級投票（比等級 OCR 可靠，見 getEvidenceLevel）
     expRecentProgress:[],
     lastEtaUpdate:0,
     lastTrustedExpRate:null,
@@ -2961,8 +2962,66 @@ div.anim-num{display:flex;}
     return bestCount >= 2 ? best : parsed;
   }
 
+  // ------------------------------------------------------------------
+  // 等級自我校驗（不依賴等級 OCR）
+  //
+  // 問題根源：等級區域只有二三十個像素，在不同電腦（解析度／縮放／字體渲染）上，Tesseract 偶爾會把
+  // 「97」讀成「9」之類。過去整條 EXP 驗證鏈都以「等級→升級所需經驗」為準，一旦等級讀錯，
+  // stabilizeExp 會把「本來讀對的 EXP」硬改成「% × 錯誤總經驗」（接近 0 或離譜大），
+  // 於是圖表掉到 0、起點被汙染、平均值爆表。
+  //
+  // 作法：EXP 條本身就同時給了「目前值」與「百分比」兩個互相獨立的數字，兩者相除就是本級總經驗，
+  // 再去對照等級表（相鄰等級至少差 5%，而 % 只有 ±0.01% 的誤差，所以幾乎唯一）就能反推出等級。
+  // 連續多筆一致才採信；採信後優先於等級 OCR。反推不出來（例如表格不適用）時，行為與舊版完全相同。
+  // ------------------------------------------------------------------
+  const LV_EVIDENCE_WINDOW = 8;
+  const LV_EVIDENCE_MIN_VOTES = 3;
+  const LV_EVIDENCE_MIN_PERCENT = 3;   // % 太小時，反推總經驗的相對誤差太大，不投票
+
+  function inferLevelFromExp(current, percent){
+    if(!Number.isFinite(current) || !Number.isFinite(percent)) return null;
+    if(percent < LV_EVIDENCE_MIN_PERCENT || percent > 100 || current <= 0) return null;
+    const implied = current / percent * 100;
+    const tol = Math.max(0.0005, 0.012 / percent);   // 百分比兩位小數的捨入誤差折算成相對誤差
+    let hit = null;
+    for(let i=0;i<LEVEL_EXP_TABLE.length;i++){
+      if(Math.abs(LEVEL_EXP_TABLE[i]/implied - 1) <= tol){
+        if(hit !== null) return null;                // 不只一個等級吻合 → 不確定，不投票
+        hit = i + 1;
+      }
+    }
+    return hit;
+  }
+
+  function observeExpLevelEvidence(parsedRaw){
+    if(!parsedRaw) return;
+    const lv = inferLevelFromExp(parsedRaw.current, parsedRaw.percent);
+    if(lv === null) return;
+    state.lvEvidence.push(lv);
+    if(state.lvEvidence.length > LV_EVIDENCE_WINDOW) state.lvEvidence.shift();
+  }
+
+  function getEvidenceLevel(){
+    const votes = state.lvEvidence;
+    if(votes.length < LV_EVIDENCE_MIN_VOTES) return null;
+    const counts = {};
+    for(const v of votes) counts[v] = (counts[v]||0) + 1;
+    let best = null, bestCount = 0, second = 0;
+    for(const k in counts){
+      if(counts[k] > bestCount){ second = bestCount; bestCount = counts[k]; best = Number(k); }
+      else if(counts[k] > second){ second = counts[k]; }
+    }
+    return (bestCount >= LV_EVIDENCE_MIN_VOTES && bestCount > second) ? best : null;
+  }
+
+  // 目前採用的等級：有「由 EXP 自己反推」的佐證就用佐證，否則才用等級 OCR
+  function getResolvedLevel(){
+    const ev = getEvidenceLevel();
+    return ev !== null ? ev : state.lastGood.lv;
+  }
+
   function getEffectiveTotalExp(){
-    const lv = state.lastGood.lv;
+    const lv = getResolvedLevel();
     if(lv!==null && lv!==undefined){
       const req = expRequiredForLevel(lv);
       if(req) return req;
@@ -3015,6 +3074,12 @@ div.anim-num{display:flex;}
             parsed.rawCurrent=parsed.current;
             parsed.current=fixed;
             parsed.currentSource='ocr_repaired';
+          }else if(Math.abs(parsed.current-derived) > totalExp*0.05 && getEvidenceLevel()===null){
+            // 數值與 % 差超過 5%，而且沒有「由 EXP 自己反推」的等級佐證：
+            // 有可能是等級讀錯（總經驗用錯），也可能是數值讀錯，無法判定誰對。
+            // 舊版在這裡一律用「% × 總經驗」覆蓋，等級讀錯時會把正確的 EXP 改成亂數。
+            // 現在不覆蓋，標記為未驗證，交給 passesExpHardBounds 擋下，等等級自我校驗收斂後自動恢復。
+            parsed.currentSource='unverified';
           }else{
             parsed.rawCurrent=parsed.current;
             parsed.current=derived;
@@ -3267,6 +3332,10 @@ div.anim-num{display:flex;}
     state.expRecentProgress = [];
     state.expBaselineOk = false;          // 新一級的起點也要重新驗證
     state.expTotalSamples = [];           // 換級後總經驗不同，估計值作廢
+    state.lvEvidence = [];                // 等級反推佐證同樣作廢，重新累積
+    state.lvHistory = [];                 // 等級 OCR 的多數決視窗也清掉，避免舊等級卡住
+    state.lvOverrideLogged = null;
+    if(newLv!==null) state.lastGood.lv = newLv;
     state.levelUpCandidate = null;
     state.expStartTime = now;             // 這一筆會成為新統計的第一筆，所以從現在開始計時
     state.lastEtaUpdate = 0;
@@ -3338,7 +3407,19 @@ div.anim-num{display:flex;}
       if(!canvas) continue;
       try{
         const { raw, parsed: parsedRaw, psm } = await recognizeField(canvas, field);
+        if(field==='exp') observeExpLevelEvidence(parsedRaw);
         let parsed = field==='exp' ? stabilizeExp(parsedRaw) : field==='lv' ? stabilizeLevel(parsedRaw) : stabilizeMax(field, parsedRaw);
+        if(field==='lv'){
+          // 等級以 EXP 反推的結果為準（見 getEvidenceLevel）；等級 OCR 讀錯或讀不到都會被修正
+          const evLv = getEvidenceLevel();
+          if(evLv !== null && parsed !== evLv){
+            if(state.lvOverrideLogged !== evLv){
+              logLine('等級 OCR 讀到 ' + (parsed===null?'（無）':parsed) + '，但由 EXP 數值與 % 反推的等級是 ' + evLv + '，已改用反推值', true);
+              state.lvOverrideLogged = evLv;
+            }
+            parsed = evLv;
+          }
+        }
 
         let filteredReason = null;
         if(field==='exp'){
@@ -3354,7 +3435,7 @@ div.anim-num{display:flex;}
               filteredReason='EXP 的 % 不合法或無法驗證，視為不可信';
               parsed=null;
             }else if(!passesExpHardBounds(parsed, effTotalExp)){
-              filteredReason='EXP 數值與百分比反推值差距過大，未通過等級硬邊界檢查，視為誤判';
+              filteredReason='EXP 數值與百分比反推值差距過大（可能是等級誤讀，等級自我校驗收斂後會自動恢復），暫不採信';
               parsed=null;
             }else{
               // 先看是不是升級：疑似升級的第一筆先擋下來等確認；確認後立刻自動重置統計，
