@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>MapleChoco V1.03</title>
+<title>MapleChoco V1.04</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -354,7 +354,7 @@ div.anim-num{display:flex;}
   <div id="miniHud">
     <div id="miniHudHeader">
       <span class="mini-drag-dots">⠿</span>
-      <span class="mini-title">MapleChoco V1.03</span>
+      <span class="mini-title">MapleChoco V1.04</span>
       <button class="btn ghost small" id="btnMiniUltra" title="只保留：預測升級時間／每10分鐘經驗與收益／經驗條與經驗圖表">精簡</button>
       <button class="btn ghost small" id="btnMiniRestore" title="還原成完整版面">還原</button>
     </div>
@@ -481,7 +481,7 @@ div.anim-num{display:flex;}
 
   <div class="hero">
     <div>
-      <h1>MapleChoco V1.03</h1>
+      <h1>MapleChoco V1.04</h1>
       <p>擷取遊戲畫面，在本機以 OCR 辨識 HP／MP／EXP／楓幣／等級並估算每分鐘練功效率；另有「祈禱提醒」，祈禱倒數到設定秒數時提醒一次。所有運算都在瀏覽器內完成，畫面不會上傳。</p>
     </div>
     <div class="hero-actions">
@@ -3270,12 +3270,15 @@ div.anim-num{display:flex;}
   // 分母就是「升級後過了多久」，跟累積時間脫鉤。
   //
   // 偵測方式看經驗條本身：新的一筆比上一筆（已採信）低了 25 個百分點以上 → 不可能是死亡扣經驗，
-  // 就是升級。為了避免 OCR 單筆誤判就把統計清掉，需要「連續兩筆都掉到低水位且彼此接近」才確認。
+  // 就是升級。為了避免 OCR 單筆誤判就把統計清掉，需要「連續三筆都掉到低水位且彼此接近，且升級前一筆接近滿條」才確認。
   // （不依賴等級 OCR：它為了防誤判做了 8 次多數決，升級後要慢好幾筆才會翻過去，也不用校準等級區域。）
   // ------------------------------------------------------------------
   const LEVELUP_MIN_DROP_PERCENT = 25;      // 一次掉超過這麼多個百分點才算
   const LEVELUP_CONFIRM_TOLERANCE = 10;     // 兩筆確認樣本的百分比彼此差距上限
   const LEVELUP_CONFIRM_MAX_GAP_MS = 60*1000;
+  const LEVELUP_PREV_MIN_PERCENT = 95;      // 升級前一筆必須 >95%（真的升級前經驗條一定接近滿）
+  const LEVELUP_NEW_MAX_PERCENT = 5;        // 升級後新一筆必須 <5%
+  const LEVELUP_CONFIRM_SAMPLES = 3;        // 連續幾筆低水位且彼此接近才確認（2 筆擋不住連續兩次同樣的誤讀）
 
   function toLevelNumber(v){
     if(v===null || v===undefined) return null;
@@ -3287,6 +3290,10 @@ div.anim-num{display:flex;}
     const prev = state.lastGood.exp;
     if(!prev || !parsed) return false;
     if(!Number.isFinite(prev.percent) || !Number.isFinite(parsed.percent)) return false;
+    // 真的升級：前一筆必須接近滿條、新的一筆必須在低水位。
+    // 例如 40.68% → 4.01% 不可能是升級（升級前不可能還只有 40%），這種是 OCR 誤讀，交給後面的「經驗不會下降」防線擋掉。
+    if(prev.percent <= LEVELUP_PREV_MIN_PERCENT) return false;
+    if(parsed.percent >= LEVELUP_NEW_MAX_PERCENT) return false;
     return (prev.percent - parsed.percent) >= LEVELUP_MIN_DROP_PERCENT;
   }
 
@@ -3298,10 +3305,15 @@ div.anim-num{display:flex;}
     }
     const c = state.levelUpCandidate;
     if(c && (now - c.t) <= LEVELUP_CONFIRM_MAX_GAP_MS && Math.abs(parsed.percent - c.percent) <= LEVELUP_CONFIRM_TOLERANCE){
-      state.levelUpCandidate = null;
-      return 'confirmed';
+      const n = (c.n || 1) + 1;
+      if(n >= LEVELUP_CONFIRM_SAMPLES){
+        state.levelUpCandidate = null;
+        return 'confirmed';
+      }
+      state.levelUpCandidate = { t: now, percent: parsed.percent, n };
+      return 'wait';
     }
-    state.levelUpCandidate = { t: now, percent: parsed.percent };
+    state.levelUpCandidate = { t: now, percent: parsed.percent, n: 1 };
     return 'wait';
   }
 
